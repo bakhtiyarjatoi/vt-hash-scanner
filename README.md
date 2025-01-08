@@ -83,3 +83,7 @@ If you have any questions or issues, feel free to reach out to the project maint
 - Name: [Bakhtiyar Ahmad]
 - GitHub: [https://github.com/bakhtiyarjatoi](https://github.com/bakhtiyarjatoi)
 
+### Contribution
+We welcome contributions from the community! Please fork the repository and submit a pull request for any enhancements or bug fixes.
+
+Made with ❤️ by Bakhtiyar Ahmad for the community.
