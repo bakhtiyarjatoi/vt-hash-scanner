@@ -47,23 +47,13 @@ Once you have the API key, you can input it when prompted by the tool.
 
 1. Run the script:
    ```bash
-   python vt_hash_scanner.py
+   python main.py
    ```
 
 2. Enter the hash value (MD5, SHA256, or other supported formats) you want to scan.
 3. The tool will retrieve results from VirusTotal and display them on the screen.
 4. Optionally, you can export the results to a CSV file.
 
-### Example
-
-```bash
-Enter the hash to scan: 098f6bcd4621d373cade4e832627b4f6
-Scanning hash... Please wait...
-Scan results for hash 098f6bcd4621d373cade4e832627b4f6:
-- MD5: 098f6bcd4621d373cade4e832627b4f6
-- SHA256: 8c56a39dfcf440e60e25876ab7648f0f...
-- Scan Results: Engine A: Clean, Engine B: Infected, Engine C: Suspicious
-```
 
 ## Exporting Results
 
@@ -93,14 +83,3 @@ If you have any questions or issues, feel free to reach out to the project maint
 - Name: [Bakhtiyar Ahmad]
 - GitHub: [https://github.com/bakhtiyarjatoi](https://github.com/bakhtiyarjatoi)
 
-```
-
-### Key Sections in the README:
-- **Overview**: A brief description of the tool and its functionalities.
-- **Features**: A bullet-point list of key features of the tool.
-- **Installation**: Step-by-step instructions on how to install the tool and its dependencies.
-- **VirusTotal API Key**: Instructions on obtaining and using the API key.
-- **Usage**: How to run the tool, provide input, and view results.
-- **Exporting Results**: Instructions on how to export scan results.
-- **License**: A standard section indicating the project’s license (MIT in this case).
-- **Contact**: A place for providing your contact information for support.
