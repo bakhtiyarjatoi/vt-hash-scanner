@@ -74,7 +74,7 @@ You can export the scan results to a CSV file by selecting the "Export" option. 
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU (GNU GENERAL PUBLIC LICENSE) License - see the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
