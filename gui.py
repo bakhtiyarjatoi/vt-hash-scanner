@@ -362,6 +362,4 @@ class HashReputationTool:
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred while saving logs: {e}")
 
-root = tk.Tk()
-app = HashReputationTool(root)
-root.mainloop()
+
