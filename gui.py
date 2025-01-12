@@ -5,6 +5,7 @@ import csv
 import time
 import queue
 import threading
+import logging
 import os
 import configparser
 from scanning import scan_file  # Import scan_file from scanning.py
@@ -93,7 +94,8 @@ class HashReputationTool:
         self.stop_button = ttk.Button(scan_frame, text="Stop Scan", command=self.stop_scan, style="StopScan.TButton")
         self.stop_button.pack(side="left", padx=5, pady=5)
         ttk.Button(scan_frame, text="Toggle Full Screen", command=self.toggle_full_screen, style="FileControl.TButton").pack(side="left", padx=5, pady=5)
-
+        ttk.Button(scan_frame, text="View History", command=self.view_history, style="FileControl.TButton").pack(side="left", padx=5, pady=5)
+        
         # Progress Frame
         progress_frame = ttk.LabelFrame(self.root, text="Progress", padding=(10, 5))
         progress_frame.pack(fill="x", padx=10, pady=5)
@@ -122,6 +124,11 @@ class HashReputationTool:
     def set_api_key(self):
         """Set or load the API key for VirusTotal."""
         config = configparser.ConfigParser()
+
+        def is_valid_api_key(api_key):
+            """Validate the format of the API key."""
+            return len(api_key) == 64
+
         try:
             # Check if the config file exists
             if os.path.exists("config.ini"):
@@ -131,24 +138,44 @@ class HashReputationTool:
                 if config.has_section("virustotal") and config.has_option("virustotal", "key"):
                     existing_api_key = config.get("virustotal", "key")
                     if existing_api_key and existing_api_key.strip() and existing_api_key != "YOUR_API_KEY_HERE":
-                        self.api_key = existing_api_key
-                        messagebox.showinfo("API Key", "API Key loaded successfully from config.ini!")
-                        return
+                        if is_valid_api_key(existing_api_key.strip()):
+                            self.api_key = existing_api_key.strip()
+                            messagebox.showinfo("API Key", "API Key loaded successfully from config.ini!")
+                            return
+                        else:
+                            self.log_error("Invalid API key format found in config.ini.")
+                            messagebox.showerror("Error", "Invalid API key format found in config.ini.")
                     else:
-                        self.log_error("Invalid API key found in config.ini.")
+                        self.log_error("Invalid or missing API key in config.ini.")
+                        messagebox.showerror("Error", "Invalid or missing API key in config.ini.")
             
+            # Ensure the root window is created and icon is set
+            if not hasattr(self, 'root') or self.root is None:
+                self.root = tk.Tk()  # Create root window if not created already
+                self.root.iconbitmap("assets/config.ico")  # Set the icon for the root window
+
             # If no valid API key is found, ask the user for a new key
-            new_api_key = simpledialog.askstring("Enter API Key", "Please enter your VirusTotal API key:")
+            new_api_key = simpledialog.askstring("Enter API Key", "Please enter your VirusTotal API key:", parent=self.root)
+
             if new_api_key:
-                if not config.has_section("virustotal"):
-                    config.add_section("virustotal")
-                config.set("virustotal", "key", new_api_key)
-                with open("config.ini", "w") as configfile:
-                    config.write(configfile)
-                self.api_key = new_api_key
-                messagebox.showinfo("API Key", "API Key set successfully and saved to config.ini!")
+                if is_valid_api_key(new_api_key):
+                    if not config.has_section("virustotal"):
+                        config.add_section("virustotal")
+                    config.set("virustotal", "key", new_api_key)
+
+                    try:
+                        with open("config.ini", "w") as configfile:
+                            config.write(configfile)
+                        self.api_key = new_api_key
+                        messagebox.showinfo("API Key", "API Key set successfully and saved to config.ini!")
+                    except Exception as e:
+                        messagebox.showerror("Error", f"Error writing to config file: {e}")
+                        self.log_error(f"Error writing to config file: {e}")
+                else:
+                    messagebox.showerror("Error", "Invalid API key format. Please provide a valid key.")
             else:
                 messagebox.showerror("Error", "API Key was not set. Please provide a valid key.")
+        
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred while processing the API key: {e}")
             self.log_error(f"Error processing API Key: {e}")
@@ -255,7 +282,14 @@ class HashReputationTool:
 
     def log_error(self, message):
         """Log an error message with timestamp and color-coded text."""
-        self.log_queue.put(self.format_log_message("ERROR", message, "red"))
+        # Check if the message contains HTTP error codes like 404, 500, etc.
+        error_codes = ["404", "403", "500", "502", "503"]  # Add more error codes as needed
+        if any(code in message for code in error_codes):
+            # If error code is found in the message, color it red
+            self.log_queue.put(self.format_log_message("ERROR", message, "red"))
+        else:
+            # Default error message formatting (red)
+            self.log_queue.put(self.format_log_message("ERROR", message, "red"))
         self.update_logs()
 
     def format_log_message(self, log_level, message, color):
@@ -268,12 +302,12 @@ class HashReputationTool:
         while not self.log_queue.empty():
             log_entry = self.log_queue.get()
             log_message = f"[{log_entry['timestamp']}] [{log_entry['level']}] {log_entry['message']}"
-            
+
             # Insert the log message with appropriate color
             self.log_text.config(state="normal")
             self.log_text.insert(tk.END, log_message + "\n", log_entry["level"])
             self.log_text.config(state="disabled")
-            
+
             # Apply color formatting based on log level
             if log_entry["level"] == "INFO":
                 self.log_text.tag_add("info", "1.0", "end")
@@ -281,12 +315,17 @@ class HashReputationTool:
             elif log_entry["level"] == "ERROR":
                 self.log_text.tag_add("error", "1.0", "end")
                 self.log_text.tag_config("error", foreground="red")
-        
-        # Schedule the next update (non-blocking)
-        self.root.after(100, self.update_logs)
+
+        # Check if the user is currently scrolling
+        log_text_pos = self.log_text.yview()
+        if log_text_pos[1] == 1.0:  # If the user is at the bottom
+            self.log_text.see(tk.END)  # Automatically scroll to the bottom
+        else:
+            # If the user is not at the bottom, don't scroll automatically
+            self.root.after(50, self.update_logs)  # Keep trying to update logs in the background
 
     def export_results(self):
-        """Export the scan results to a CSV file, including VT attributes."""
+        """Export the scan results to a CSV file, including error responses."""
         if not self.scan_results:
             messagebox.showwarning("No Results", "No scan results to export.")
             return
@@ -304,10 +343,14 @@ class HashReputationTool:
                     "Hash", "Magic", "TLSH", "Type Tag", "MD5", "SHA256", "Authentihash",
                     ".NET GUIDs", "File Type", "Probability", "Scan Results", "VT Link"
                 ])
-                
-                for result in self.scan_results:
-                    # Ensure result is a dictionary before accessing attributes
-                    if isinstance(result, dict):
+
+                for idx, result in enumerate(self.scan_results):
+                    if not isinstance(result, dict):
+                        logging.error(f"Invalid entry at index {idx}: {type(result)} - {result}")
+                        continue
+
+                    # Safely extract fields from the result
+                    try:
                         hash_value = result.get("scan_id", "N/A")
                         magic = result.get("magic", "N/A")
                         tlsh = result.get("tlsh", "N/A")
@@ -319,31 +362,36 @@ class HashReputationTool:
                         file_type = result.get("file_type", "N/A")
                         probability = result.get("probability", "N/A")
 
-                        # Safely process scan results if it's a dictionary
+                        # Safely handle scan results
                         scan_results = "N/A"
                         if isinstance(result.get("scan_results"), dict):
-                            scan_results = "; ".join([f"{r.get('engine_name', 'N/A')}: {r.get('result', 'N/A')}" 
-                                                    for r in result["scan_results"].values()])
+                            scan_results = "; ".join([
+                                f"{r.get('engine_name', 'N/A')}: {r.get('result', 'N/A')}"
+                                for r in result["scan_results"].values()
+                            ])
 
                         vt_link = result.get("permalink", "N/A")
 
-                        # Write the row to CSV
+                        # Write to CSV
                         writer.writerow([
                             hash_value, magic, tlsh, type_tag, md5, sha256, authentihash,
                             dot_net_guids, file_type, probability, scan_results, vt_link
                         ])
-                    else:
-                        # Log or handle unexpected data types
-                        self.log_info(f"Unexpected result type: {type(result)} - {result}")
-                        messagebox.showerror("Export Error", f"Unexpected result type: {type(result)} - {result}")
+                    except Exception as e:
+                        logging.error(f"Error processing result at index {idx}: {e}")
                         continue
 
             messagebox.showinfo("Export Successful", f"Scan results successfully exported to {save_path}")
-            self.log_info(f"Scan results successfully exported to {save_path}")
+            logging.info(f"Scan results successfully exported to {save_path}")
 
+        except PermissionError:
+            messagebox.showerror(
+                "Export Error", f"Permission denied: {save_path}. Please close the file or choose a different location."
+            )
+            logging.error(f"Permission denied: {save_path}. File may be open or write access restricted.")
         except Exception as e:
-            messagebox.showerror("Export Error", f"An error occurred while exporting the results: {e}")
-            self.log_info(f"Export Error: {e}")
+            messagebox.showerror("Export Error", f"An unexpected error occurred: {e}")
+            logging.error(f"Unexpected error during export: {e}")
 
     def save_logs(self):
         """Save all logs to a text file in the current working directory."""
@@ -362,4 +410,52 @@ class HashReputationTool:
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred while saving logs: {e}")
 
+    def view_history(self):
+        """Open and display the scan results log in a pop-up window with an icon."""
+        log_file_path = os.path.join(os.getcwd(), "scan_results.log")
+        
+        if not os.path.exists(log_file_path):
+            messagebox.showerror("Error", "Log file not found.")
+            return
+        
+        try:
+            with open(log_file_path, "r", encoding="utf-8") as log_file:
+                log_content = log_file.read()
+            
+            # Create a new top-level window to display the logs
+            history_window = tk.Toplevel(self.root)
+            history_window.title("Scan History")
+            history_window.geometry("800x600")
+            
+            # Set the window icon from the 'assets' folder
+            icon_path = os.path.join(os.getcwd(), "assets", "history_icon.ico")  # Adjusted to assets folder
+            if os.path.exists(icon_path):
+                history_window.iconbitmap(icon_path)
+            else:
+                print("Icon file not found in the assets folder, using default window icon.")
+            
+            # Create a Text widget to display the logs
+            log_text = tk.Text(history_window, wrap="word", height=30, width=100)
+            log_text.insert(tk.END, log_content)
+            log_text.config(state="disabled")  # Make it read-only
+            log_text.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
+            
+            # Add a scrollbar for better navigation
+            scrollbar = ttk.Scrollbar(history_window, orient="vertical", command=log_text.yview)
+            scrollbar.pack(side="right", fill="y")
+            log_text.config(yscrollcommand=scrollbar.set)
 
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred while reading the log file: {e}")
+
+    def on_closing(self):
+        """Handle the window closing event."""
+        if self.scan_in_progress:
+            confirm = messagebox.askyesno("Confirm Exit", "Scan is still in progress. Do you want to exit?")
+            if confirm:
+                self.stop_event.set()
+                self.root.quit()
+        else:
+            self.root.quit()
+
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
