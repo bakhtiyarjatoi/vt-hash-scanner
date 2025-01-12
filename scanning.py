@@ -1,6 +1,7 @@
 import requests
 import time
 import logging
+from queue import Queue
 
 # Configure logging to both console and a log file
 log_filename = "scan_results.log"
@@ -9,13 +10,16 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
     logging.FileHandler(log_filename)
 ])
 
+# Initialize a global log queue
+log_queue = Queue()
 
-def scan_file(api_key, hash_value, max_retries=3, timeout=10):
+def scan_file(api_key, hash_value, log_queue, max_retries=3, timeout=10):
     """
     Scans the given hash using the VirusTotal API and returns the results with the required attributes.
 
     :param api_key: The VirusTotal API key.
     :param hash_value: The hash to be scanned.
+    :param log_queue: The log queue to store log entries.
     :param max_retries: Maximum number of retries for transient errors.
     :param timeout: Timeout value for the API request in seconds.
     :return: A dictionary containing scan results and additional attributes.
@@ -36,20 +40,32 @@ def scan_file(api_key, hash_value, max_retries=3, timeout=10):
                 data = result.get("data", {})
                 if isinstance(data, dict):
                     attributes = data.get("attributes", {})
-                    return {
-                        "scan_id": hash_value,
-                        "magic": attributes.get("magic", "N/A"),
-                        "tlsh": attributes.get("tlsh", "N/A"),
-                        "type_tag": attributes.get("type_tag", "N/A"),
-                        "md5": attributes.get("md5", "N/A"),
-                        "sha256": attributes.get("sha256", "N/A"),
-                        "authentihash": attributes.get("authentihash", "N/A"),
-                        "dot_net_guids": attributes.get("dot_net_guids", "N/A"),
-                        "file_type": attributes.get("type", "N/A"),
-                        "probability": attributes.get("probability", "N/A"),
-                        "scan_results": attributes.get("last_analysis_results", {}),
-                        "permalink": result.get("links", {}).get("self", "N/A"),
+                    scan_results = attributes.get("last_analysis_results", {})
+
+                    # Extract the malicious, suspicious, and undetected values
+                    malicious_count = sum(1 for engine in scan_results.values() if engine.get("category") == "malicious")
+                    suspicious_count = sum(1 for engine in scan_results.values() if engine.get("category") == "suspicious")
+                    undetected_count = sum(1 for engine in scan_results.values() if engine.get("category") == "undetected")
+
+                    # Log entry with relevant attributes only (MD5, SHA256, malicious, suspicious, undetected)
+                    log_entry = {
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "level": "INFO",
+                        "message": "Scan completed.",
+                        "vt_attributes": {
+                            "md5": attributes.get("md5", "N/A"),
+                            "sha256": attributes.get("sha256", "N/A"),
+                            "malicious": malicious_count,
+                            "suspicious": suspicious_count,
+                            "undetected": undetected_count,
+                        }
                     }
+
+                    # Send the log entry to the log queue
+                    log_queue.put(log_entry)
+
+                    # Return the formatted scan results
+                    return log_entry
                 else:
                     logging.error(f"Invalid data format for hash {hash_value}: {data}")
                     return create_error_response(hash_value, "Invalid data format from VirusTotal")
@@ -75,6 +91,7 @@ def scan_file(api_key, hash_value, max_retries=3, timeout=10):
 
     logging.error(f"Max retries reached for hash {hash_value}")
     return create_error_response(hash_value, "Max retries reached, request failed")
+
 
 def create_error_response(hash_value, error_message):
     """

@@ -248,7 +248,7 @@ class HashReputationTool:
                 while self.pause_event.is_set():
                     time.sleep(0.5)
             try:
-                result = scan_file(self.api_key, hash_value)
+                result = scan_file(self.api_key, hash_value, self.log_queue)  # Pass log_queue
                 self.scan_results.append(result)
                 self.log_info(f"Hash: {hash_value} | {result}")
                 scanned += 1
@@ -316,9 +316,25 @@ class HashReputationTool:
         """Update the log display asynchronously with the log queue."""
         while not self.log_queue.empty():
             log_entry = self.log_queue.get()
-            log_message = f"[{log_entry['timestamp']}] [{log_entry['level']}] {log_entry['message']}"
 
-            # Insert the log message with appropriate color
+            # Extract and display VirusTotal (VT) attributes if present
+            if "vt_attributes" in log_entry:
+                vt_data = log_entry["vt_attributes"]
+
+                # Build the log message with only the desired attributes
+                log_message = (
+                    f"[{log_entry['timestamp']}] [{log_entry['level']}]\n"
+                    f"MD5: {vt_data.get('md5', 'N/A')}\n"
+                    f"SHA256: {vt_data.get('sha256', 'N/A')}\n"
+                    f"Malicious: {vt_data.get('malicious', 'N/A')}\n"
+                    f"Suspicious: {vt_data.get('suspicious', 'N/A')}\n"
+                    f"Undetected: {vt_data.get('undetected', 'N/A')}\n"
+                )
+            else:
+                # Default log message for entries without VT attributes
+                log_message = f"[{log_entry['timestamp']}] [{log_entry['level']}] {log_entry['message']}"
+
+            # Insert the formatted log message into the text widget
             self.log_text.config(state="normal")
             self.log_text.insert(tk.END, log_message + "\n", log_entry["level"])
             self.log_text.config(state="disabled")
@@ -338,7 +354,7 @@ class HashReputationTool:
         else:
             # If the user is not at the bottom, don't scroll automatically
             self.root.after(50, self.update_logs)  # Keep trying to update logs in the background
-
+            
     def export_results(self):
         """Export the scan results to a CSV file, including error responses."""
         if not self.scan_results:
@@ -355,8 +371,7 @@ class HashReputationTool:
                 writer = csv.writer(file)
                 # Write the header row
                 writer.writerow([
-                    "Hash", "Magic", "TLSH", "Type Tag", "MD5", "SHA256", "Authentihash",
-                    ".NET GUIDs", "File Type", "Probability", "Scan Results", "VT Link"
+                    "Timestamp", "MD5", "SHA256", "Malicious", "Suspicious", "Undetected", "VT Link"
                 ])
 
                 for idx, result in enumerate(self.scan_results):
@@ -366,31 +381,18 @@ class HashReputationTool:
 
                     # Safely extract fields from the result
                     try:
-                        hash_value = result.get("scan_id", "N/A")
-                        magic = result.get("magic", "N/A")
-                        tlsh = result.get("tlsh", "N/A")
-                        type_tag = result.get("type_tag", "N/A")
-                        md5 = result.get("md5", "N/A")
-                        sha256 = result.get("sha256", "N/A")
-                        authentihash = result.get("authentihash", "N/A")
-                        dot_net_guids = result.get("dot_net_guids", "N/A")
-                        file_type = result.get("file_type", "N/A")
-                        probability = result.get("probability", "N/A")
-
-                        # Safely handle scan results
-                        scan_results = "N/A"
-                        if isinstance(result.get("scan_results"), dict):
-                            scan_results = "; ".join([
-                                f"{r.get('engine_name', 'N/A')}: {r.get('result', 'N/A')}"
-                                for r in result["scan_results"].values()
-                            ])
-
-                        vt_link = result.get("permalink", "N/A")
+                        vt_attributes = result.get("vt_attributes", {})
+                        timestamp = result.get("timestamp", "N/A")
+                        md5 = vt_attributes.get("md5", "N/A")
+                        sha256 = vt_attributes.get("sha256", "N/A")
+                        malicious = vt_attributes.get("malicious", "N/A")
+                        suspicious = vt_attributes.get("suspicious", "N/A")
+                        undetected = vt_attributes.get("undetected", "N/A")
+                        vt_link = result.get("vt_attributes", {}).get("permalink", "N/A")
 
                         # Write to CSV
                         writer.writerow([
-                            hash_value, magic, tlsh, type_tag, md5, sha256, authentihash,
-                            dot_net_guids, file_type, probability, scan_results, vt_link
+                            timestamp, md5, sha256, malicious, suspicious, undetected, vt_link
                         ])
                     except Exception as e:
                         logging.error(f"Error processing result at index {idx}: {e}")
@@ -426,9 +428,10 @@ class HashReputationTool:
             messagebox.showerror("Error", f"An error occurred while saving logs: {e}")
 
     def view_history(self):
-        """Open and display filtered scan results log in a pop-up window."""
+        """Open and display logs from the scan_results.log file in a pop-up window."""
         log_file_path = os.path.join(os.getcwd(), "scan_results.log")
         
+        # Check if the log file exists
         if not os.path.exists(log_file_path):
             messagebox.showerror("Error", "Log file not found.")
             return
@@ -437,26 +440,9 @@ class HashReputationTool:
             with open(log_file_path, "r", encoding="utf-8") as log_file:
                 log_content = log_file.readlines()
             
-            filtered_logs = []
-            
-            # Filter only relevant attributes
-            for line in log_content:
-                try:
-                    scan_result = json.loads(line.strip())  # Parse each line as JSON
-                    attributes = {
-                        "scan_id": scan_result.get("scan_id", "N/A"),
-                        "magic": scan_result.get("magic", "N/A"),
-                        "tlsh": scan_result.get("tlsh", "N/A"),
-                        "type_tag": scan_result.get("type_tag", "N/A"),
-                        "md5": scan_result.get("md5", "N/A"),
-                        "sha256": scan_result.get("sha256", "N/A"),
-                        "authentihash": scan_result.get("authentihash", "N/A"),
-                        "dot_net_guids": scan_result.get("dot_net_guids", "N/A"),
-                        "file_type": scan_result.get("file_type", "N/A"),
-                    }
-                    filtered_logs.append(attributes)
-                except json.JSONDecodeError:
-                    continue  # Skip invalid lines
+            if not log_content:
+                messagebox.showinfo("Info", "Log file is empty.")
+                return
             
             # Create a new top-level window to display the logs
             history_window = tk.Toplevel(self.root)
@@ -464,38 +450,42 @@ class HashReputationTool:
             history_window.geometry("800x600")
             
             # Set the window icon from the 'assets' folder
-            icon_path = os.path.join(os.getcwd(), "assets", "history_icon.ico")  # Adjusted to assets folder
+            icon_path = os.path.join(os.getcwd(), "assets", "history_icon.ico")  # Adjust to assets folder
             if os.path.exists(icon_path):
                 history_window.iconbitmap(icon_path)
             else:
                 print("Icon file not found in the assets folder, using default window icon.")
             
-            # Create a Text widget to display the filtered logs
+            # Create a Text widget to display the logs
             log_text = tk.Text(history_window, wrap="word", height=30, width=100)
             
-            for entry in filtered_logs:
-                log_text.insert(tk.END, f"Scan ID: {entry['scan_id']}\n")
-                log_text.insert(tk.END, f"Magic: {entry['magic']}\n")
-                log_text.insert(tk.END, f"TLSH: {entry['tlsh']}\n")
-                log_text.insert(tk.END, f"Type Tag: {entry['type_tag']}\n")
-                log_text.insert(tk.END, f"MD5: {entry['md5']}\n")
-                log_text.insert(tk.END, f"SHA256: {entry['sha256']}\n")
-                log_text.insert(tk.END, f"Authentihash: {entry['authentihash']}\n")
-                log_text.insert(tk.END, f"Dot Net GUIDs: {entry['dot_net_guids']}\n")
-                log_text.insert(tk.END, f"File Type: {entry['file_type']}\n")
-                log_text.insert(tk.END, "-" * 80 + "\n\n")
+            for line in log_content:
+                # Parse the log line to extract relevant details (timestamp, level, hash, message)
+                parts = line.split(" - ")
+                if len(parts) < 3:
+                    continue  # Skip lines that do not follow the expected format
+                
+                timestamp = parts[0]
+                level = parts[1]
+                message = parts[2]
+                
+                # Display the log information
+                log_text.insert(tk.END, f"{timestamp} [{level}] {message}\n")
             
             log_text.config(state="disabled")  # Make it read-only
             log_text.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
             
             # Add a scrollbar for better navigation
-            scrollbar = ttk.Scrollbar(history_window, orient="vertical", command=log_text.yview)
+            scrollbar = tk.Scrollbar(history_window, orient="vertical", command=log_text.yview)
             scrollbar.pack(side="right", fill="y")
             log_text.config(yscrollcommand=scrollbar.set)
 
+            # Auto-scroll to the bottom of the log
+            log_text.see(tk.END)  # Scroll to the bottom
+
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred while reading the log file: {e}")
-
+    
     def on_closing(self):
         """Handle the window closing event."""
         if self.scan_in_progress:
