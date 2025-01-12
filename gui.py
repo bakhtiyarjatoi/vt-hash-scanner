@@ -7,6 +7,8 @@ import queue
 import threading
 import logging
 import os
+import sys
+import json
 import configparser
 from scanning import scan_file  # Import scan_file from scanning.py
 
@@ -23,10 +25,23 @@ class HashReputationTool:
         self.log_queue = queue.Queue()
         self.is_full_screen = False  # Track full-screen state
         self.setup_ui()
+        self.set_api_key() # Load the API key from config.ini
+        self.set_window_icon(self.root, "scan_logo.ico")  # Setting main window icon
 
-        # Load the API key from config.ini
-        self.set_api_key()
+    def set_window_icon(self, window, icon_name):
+        """Sets the icon for a given window, handling both development and packaged modes."""
+        if getattr(sys, 'frozen', False):  # Check if the app is bundled
+            
+            icon_path = os.path.join(sys._MEIPASS, "assets", icon_name)
+        else:
+           
+            icon_path = os.path.join(os.getcwd(), "assets", icon_name)
 
+        if os.path.exists(icon_path):
+            window.iconbitmap(icon_path)
+        else:
+            print(f"Icon file '{icon_name}' not found, using default window icon.")
+    
     def setup_ui(self):
         """Set up the user interface."""
         self.root.title("Hash Reputation Tool")
@@ -411,7 +426,7 @@ class HashReputationTool:
             messagebox.showerror("Error", f"An error occurred while saving logs: {e}")
 
     def view_history(self):
-        """Open and display the scan results log in a pop-up window with an icon."""
+        """Open and display filtered scan results log in a pop-up window."""
         log_file_path = os.path.join(os.getcwd(), "scan_results.log")
         
         if not os.path.exists(log_file_path):
@@ -420,7 +435,28 @@ class HashReputationTool:
         
         try:
             with open(log_file_path, "r", encoding="utf-8") as log_file:
-                log_content = log_file.read()
+                log_content = log_file.readlines()
+            
+            filtered_logs = []
+            
+            # Filter only relevant attributes
+            for line in log_content:
+                try:
+                    scan_result = json.loads(line.strip())  # Parse each line as JSON
+                    attributes = {
+                        "scan_id": scan_result.get("scan_id", "N/A"),
+                        "magic": scan_result.get("magic", "N/A"),
+                        "tlsh": scan_result.get("tlsh", "N/A"),
+                        "type_tag": scan_result.get("type_tag", "N/A"),
+                        "md5": scan_result.get("md5", "N/A"),
+                        "sha256": scan_result.get("sha256", "N/A"),
+                        "authentihash": scan_result.get("authentihash", "N/A"),
+                        "dot_net_guids": scan_result.get("dot_net_guids", "N/A"),
+                        "file_type": scan_result.get("file_type", "N/A"),
+                    }
+                    filtered_logs.append(attributes)
+                except json.JSONDecodeError:
+                    continue  # Skip invalid lines
             
             # Create a new top-level window to display the logs
             history_window = tk.Toplevel(self.root)
@@ -434,9 +470,21 @@ class HashReputationTool:
             else:
                 print("Icon file not found in the assets folder, using default window icon.")
             
-            # Create a Text widget to display the logs
+            # Create a Text widget to display the filtered logs
             log_text = tk.Text(history_window, wrap="word", height=30, width=100)
-            log_text.insert(tk.END, log_content)
+            
+            for entry in filtered_logs:
+                log_text.insert(tk.END, f"Scan ID: {entry['scan_id']}\n")
+                log_text.insert(tk.END, f"Magic: {entry['magic']}\n")
+                log_text.insert(tk.END, f"TLSH: {entry['tlsh']}\n")
+                log_text.insert(tk.END, f"Type Tag: {entry['type_tag']}\n")
+                log_text.insert(tk.END, f"MD5: {entry['md5']}\n")
+                log_text.insert(tk.END, f"SHA256: {entry['sha256']}\n")
+                log_text.insert(tk.END, f"Authentihash: {entry['authentihash']}\n")
+                log_text.insert(tk.END, f"Dot Net GUIDs: {entry['dot_net_guids']}\n")
+                log_text.insert(tk.END, f"File Type: {entry['file_type']}\n")
+                log_text.insert(tk.END, "-" * 80 + "\n\n")
+            
             log_text.config(state="disabled")  # Make it read-only
             log_text.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
             
